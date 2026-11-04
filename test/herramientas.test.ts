@@ -133,3 +133,13 @@ describe("Bonus: módulo reutilizable", () => {
     expect(m.leer_solicitud).toBe(herramientas.leer_solicitud)
   })
 })
+
+describe("Reintentos ante límite de uso", () => {
+  test("detecta 429 y lee la espera sugerida", async () => {
+    const { esLimiteDeUso, esperaSugeridaMs } = await import("../src/agent/reintentos")
+    expect(esLimiteDeUso(new Error("[429 Too Many Requests] Resource exhausted"))).toBe(true)
+    expect(esLimiteDeUso(new Error("[400 Bad Request]"))).toBe(false)
+    expect(esperaSugeridaMs(new Error('{"retryDelay":"27s"}'))).toBe(27000)
+    expect(esperaSugeridaMs(new Error("Please retry in 12.5s."))).toBe(12500)
+  })
+})

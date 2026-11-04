@@ -25,7 +25,7 @@ export class AdaptadorGemini implements AdaptadorLLM {
       apiKey,
       model: modelo,
       temperature: 0,
-      maxRetries: 1,
+      maxRetries: 0, // los reintentos ante 429 los maneja src/agent/reintentos.ts
       safetySettings: CATEGORIAS.map((category) => ({ category, threshold: HarmBlockThreshold.BLOCK_LOW_AND_ABOVE })),
     })
   }

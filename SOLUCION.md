@@ -46,7 +46,8 @@ Servidor (Bun + Hono, desplegado en Render con Docker)
 
 - **Motor:** LangChain v1 sobre LangGraph. El agente decide qué herramienta usar, la ejecuta, revisa el resultado y repite hasta tener una respuesta.
 - **Tope de iteraciones:** 25 por turno, configurable. Si se alcanza, el agente responde con lo realizado y lo pendiente, sin perder la sesión.
-- **Control de costo:** tope de tokens por sesión, límite de mensajes por minuto y tiempo máximo de espera al proveedor.
+- **Control de costo:** tope de tokens por sesión, límite de mensajes por minuto y tiempo máximo de 90 segundos por turno.
+- **Límite de uso del proveedor:** si Gemini rechaza por exceso de solicitudes (error 429), el agente espera el tiempo que indica el proveedor, o una espera creciente, y reintenta hasta 3 veces antes de informar a la usuaria.
 - **Confirmación humana, en dos capas:**
   1. El agente cierra el turno con una pregunta explícita antes de cualquier envío.
   2. El servidor valida que la usuaria haya confirmado en el mensaje inmediatamente anterior. Aunque el modelo fallara, el envío no procede sin esa confirmación.
@@ -129,7 +130,7 @@ Como el costo es mínimo con cualquier opción, el criterio decisivo fue la segu
 | HU-5 Manejo de errores | Hecho | Monitoreo y alertas centralizadas. |
 | Bonus: módulo reutilizable | Hecho (`modulo/`) | Publicarlo como paquete versionado. |
 
-**Verificación:** `demo.ts` procesa los 4 casos sin modelo, pasan 18 pruebas automáticas y la aplicación está desplegada en Render.
+**Verificación:** `demo.ts` procesa los 4 casos sin modelo, pasan 19 pruebas automáticas y la aplicación está desplegada en Render.
 
 ---
 

@@ -13,7 +13,8 @@ const num = (v: string | undefined, d: number) => (v && Number.isFinite(Number(v
 const config = {
   maxIteraciones: num(process.env.MAX_ITERACIONES, 25),
   maxTokensSesion: num(process.env.MAX_TOKENS_SESION, 200_000),
-  timeoutMs: num(process.env.LLM_TIMEOUT_MS, 60_000),
+  timeoutMs: num(process.env.LLM_TIMEOUT_MS, 90_000),
+  reintentos: { intentos: num(process.env.LLM_REINTENTOS, 3), esperaBaseMs: num(process.env.LLM_ESPERA_BASE_MS, 2_000), esperaMaximaMs: num(process.env.LLM_ESPERA_MAXIMA_MS, 30_000) },
 }
 const LIMITE_POR_MINUTO = num(process.env.MENSAJES_POR_MINUTO, 12)
 const CLAVE_ACCESO = process.env.ACCESS_KEY ?? ""

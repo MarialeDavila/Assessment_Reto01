@@ -10,13 +10,14 @@ import { join } from "node:path"
 import { textoDe, type AdaptadorLLM } from "../llm/adapter"
 import type { Registro } from "../db"
 import { aLangChain } from "./herramientas-langchain"
+import { middlewareReintentos, type ConfigReintentos } from "./reintentos"
 
 export type LlamadaVisible = { id: string; nombre: string; args: Record<string, unknown>; ok: boolean; resumen: string; resultado: string }
 export type Entrada = { rol: "usuario" | "agente" | "error"; texto: string; ts: string; toolCalls?: LlamadaVisible[]; needsConfirmation?: boolean }
 export type Sesion = { id: string; mensajes: BaseMessage[]; historial: Entrada[]; tokens: number; pendienteConfirmacion: boolean }
 export type Respuesta = { reply: string; toolCalls: LlamadaVisible[]; needsConfirmation: boolean; error?: boolean; uso?: { entrada: number; salida: number; sesion: number } }
 
-export type Config = { maxIteraciones: number; maxTokensSesion: number; timeoutMs: number }
+export type Config = { maxIteraciones: number; maxTokensSesion: number; timeoutMs: number; reintentos: ConfigReintentos }
 
 const AFIRMATIVO = /\b(s[ií]|confirmo|confirmado|env[ií]a(lo)?|enviar|adelante|procede|de acuerdo|autorizo|ok)\b/i
 const NEGATIVO = /\b(no|todav[ií]a no|cancela|espera|detente)\b/i
@@ -76,7 +77,7 @@ export class Agente {
     // CA3 / RN4: la confirmación solo vale si el turno anterior la pidió y este mensaje la da explícitamente.
     const confirmacionHumana = sesion.pendienteConfirmacion && esConfirmacion(mensaje)
     const ctx = { directory: this.directorio, sessionId: sesion.id, confirmacionHumana }
-    const agente = createAgent({ model: this.adaptador.modeloChat(), tools: aLangChain(ctx), systemPrompt: this.sistema })
+    const agente = createAgent({ model: this.adaptador.modeloChat(), tools: aLangChain(ctx), systemPrompt: this.sistema, middleware: [middlewareReintentos(this.config.reintentos)] })
     const entrada = [...sesion.mensajes, new HumanMessage(mensaje)]
     const inicio = Date.now()
     let estado: BaseMessage[] = entrada
