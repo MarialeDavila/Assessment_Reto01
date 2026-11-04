@@ -1,0 +1,18 @@
+{
+  "identificador_tributario_por_pais": { "CO": "NIT", "EC": "RUC", "PE": "RUC", "PA": "RUC", "HN": "RTN" },
+  "pais_origen_maestro": "CO",
+  "claves_identificador_tributario": ["nit"],
+  "etiquetas_ambiguas": ["Identificación tributaria", "Número de identificación fiscal"],
+  "claves_bancarias_prefijo": "banco.",
+  "umbral_confianza": 0.8,
+  "umbral_sugerencia": 0.5,
+  "nombres_soportes": {
+    "camara_comercio": "Certificado de Cámara de Comercio (existencia y representación legal)",
+    "rut": "RUT / registro tributario",
+    "certificacion_bancaria": "Certificación bancaria",
+    "parafiscales": "Certificación de pago de parafiscales y seguridad social",
+    "estados_financieros": "Estados financieros",
+    "certificado_cumplimiento_tributario": "Certificado de cumplimiento tributario",
+    "certificado_iso_9001": "Certificado ISO 9001"
+  }
+}
