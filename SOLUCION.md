@@ -1,114 +1,172 @@
-# SOLUCIÓN: Reto 01, agente "Registro como Proveedor"
+# SOLUCIÓN · Reto 01: agente "Registro como Proveedor"
 
-Link de prueba: https://assessment-reto01.onrender.com
+**Link de prueba:** https://assessment-reto01.onrender.com (plan gratuito de Render: la primera visita tras un periodo de inactividad puede tardar entre 30 y 60 segundos)
+**Repositorio:** https://github.com/MarialeDavila/Assessment_Reto01
+
+---
 
 ## 1. Problema en una frase
 
-La analista administrativa transcribe a mano, en cada solicitud de un cliente, los mismos datos y soportes de Periferia para registrarla como proveedor; eso genera retrabajo, errores en datos sensibles y dependencia de una sola persona.
+El área administrativa transcribe a mano, en cada solicitud de un cliente, los mismos datos y soportes de Periferia para registrarse como proveedor. Esto genera retrabajo, riesgo de error en datos sensibles (NIT, cuenta bancaria) y dependencia de una sola persona.
+
+**A quién le duele:** a la analista administrativa, que pierde tiempo en tareas repetitivas, y al negocio, porque cada día de retraso en el registro retrasa la facturación.
+
+**Qué entrega la solución:** un agente que lee la solicitud, llena el formulario con los datos oficiales, arma el paquete para firma y señala qué falta. La firma y el envío siguen siendo decisiones humanas.
+
+---
 
 ## 2. Arquitectura
 
+La solución separa tres responsabilidades, para que un cambio en las reglas de negocio no obligue a modificar el sistema:
+
+| Capa | Qué contiene | Dónde vive |
+|---|---|---|
+| **Comportamiento** | Cómo debe actuar el agente y sus límites (guardrails) | `agent/prompt.md` |
+| **Conocimiento** | Proceso de registro y reglas por país | `src/knowledge/` |
+| **Ejecución** | Herramientas que leen, cruzan datos y generan documentos | `src/tools/` |
+
 ```
-Front (web/index.html) --HTTP--> Backend Hono (src/server.ts)
-                                  ├─ Ciclo del agente: LangGraph createAgent (src/agent/agente.ts)
-                                  │    ├─ System prompt: agent/prompt.md + src/knowledge/registro-proveedor.md
-                                  │    └─ Adaptador LLM propio (src/llm/adapter.ts) → Gemini | simulado
-                                  ├─ Herramientas zod (src/tools/proveedor.ts) ← únicas fuentes de valores
-                                  ├─ Sesiones en memoria + out/sesiones/*.json
-                                  └─ SQLite out/app.db (tareas, transacciones_finales, logs_tecnicos, metricas_modelo)
-fixtures/ (solo lectura) ──► herramientas ──► out/<caso>/ (formulario, paquete/, log.jsonl, ENVIO-SIMULADO.md)
+Usuaria (chat web)
+      │
+      ▼
+Servidor (Bun + Hono, desplegado en Render con Docker)
+      ├─ Agente experto (LangChain + LangGraph)  ──►  Modelo Gemini (vía adaptador propio)
+      ├─ Herramientas deterministas (única fuente de datos)
+      └─ Base local SQLite: tareas, transacciones, logs técnicos y métricas por modelo
+      │
+      ├─ Lee:      fixtures/ (solicitudes, maestro de datos, soportes)
+      └─ Escribe:  out/<caso>/ (formulario, paquete para firma, registro de actividad)
 ```
 
-- **Comportamiento:** `agent/prompt.md`.
-- **Conocimiento:** `src/knowledge/registro-proveedor.md` (proceso) y `src/knowledge/reglas.json` (identificador por país, etiquetas ambiguas, umbrales, nombres de soportes). Cambiar una regla no toca el servidor.
-- **Ejecución:** `src/tools/` (sin dependencias de LangChain; `demo.ts` las importa directamente).
+**Principio de diseño:** el modelo de IA orquesta y redacta; los datos y los documentos los produce código determinista. Así el agente no puede inventar un valor, y el mismo código se puede verificar sin modelo con `demo.ts`.
+
+---
 
 ## 3. Ciclo del agente
 
-- Se usa `createAgent` de LangChain v1 sobre LangGraph: modelo → llamadas a herramientas → modelo, hasta una respuesta sin llamadas.
-- Las herramientas propias (`{ description, args, execute }`) se convierten a herramientas LangChain en `src/agent/herramientas-langchain.ts`. LangChain valida los argumentos con el esquema zod y devuelve el error al modelo; además se revalida antes de ejecutar.
-- **Tope de iteraciones (CA1):** `recursionLimit = 2 × MAX_ITERACIONES + 1`. Si se alcanza, se captura `GraphRecursionError` y se responde con lo realizado y lo pendiente.
-- **Tope de costo:** tokens acumulados por sesión (`MAX_TOKENS_SESION`), límite de mensajes por IP por minuto y timeout al proveedor (`AbortSignal.timeout`).
-- **Confirmación humana (CA3, RN4), en dos capas:**
-  1. El prompt obliga a cerrar el turno con una pregunta y a no llamar `proveedor_simular_envio` por iniciativa propia.
-  2. El servidor marca `pendienteConfirmacion` cuando se arma el paquete. En el siguiente turno solo pasa `confirmacionHumana = true` a las herramientas si el mensaje del usuario es una afirmación explícita (sin negación). `simular_envio` exige `confirmado: true` **y** esa marca del servidor; el modelo no puede saltarse la regla.
-- **Trazabilidad (CA4, RN5):** cada llamada se muestra en el chat (nombre, argumentos, resumen y resultado) y queda en `out/log.jsonl` y `out/<caso>/log.jsonl`.
-- **Errores (CA5):** timeout, cuota o credencial inválida se traducen a mensajes claros; la sesión no se pierde.
-- **No inventar valores (CA2):** `generar_formulario` recalcula el mapeo desde el maestro y nunca usa valores enviados por el modelo.
+- **Motor:** LangChain v1 sobre LangGraph. El agente decide qué herramienta usar, la ejecuta, revisa el resultado y repite hasta tener una respuesta.
+- **Tope de iteraciones:** 25 por turno, configurable. Si se alcanza, el agente responde con lo realizado y lo pendiente, sin perder la sesión.
+- **Control de costo:** tope de tokens por sesión, límite de mensajes por minuto y tiempo máximo de espera al proveedor.
+- **Confirmación humana, en dos capas:**
+  1. El agente cierra el turno con una pregunta explícita antes de cualquier envío.
+  2. El servidor valida que la usuaria haya confirmado en el mensaje inmediatamente anterior. Aunque el modelo fallara, el envío no procede sin esa confirmación.
+- **Trazabilidad:** cada acción del agente se muestra en el chat y queda registrada en `out/log.jsonl`, `out/<caso>/log.jsonl`; el estado de cada caso queda además en la base SQLite.
+- **Errores:** las fallas del modelo o de una herramienta se muestran en lenguaje claro y la conversación continúa.
+
+---
 
 ## 4. Elección del modelo
 
-- **Proveedor y modelo:** Google Gemini, `gemini-3.8-flash` (configurable con `GEMINI_MODEL`). Es el modelo Flash estable más reciente en la documentación de Google (consultada el 2026-11-04), tiene buen manejo de herramientas, baja latencia y nivel gratuito para la prueba.
-- **Seguridad:** `safetySettings` en `BLOCK_LOW_AND_ABOVE` para acoso, odio, contenido sexual y contenido peligroso; `temperature: 0`.
-- **Precio vigente (nivel estándar, por millón de tokens):** USD 0,75 de entrada y USD 3,75 de salida hasta el 31-12-2026; desde el 01-01-2027, USD 1,50 y USD 7,50.
-- **Costo estimado por caso:** unas 5 llamadas al modelo con unos 25.000 tokens de entrada acumulados y unos 3.000 de salida → aproximadamente USD 0,03 por caso (USD 0,06 desde 2027). Con 12 casos al mes: cerca de USD 0,36 al mes (USD 0,72 desde 2027). Es una estimación; el costo real queda en `metricas_modelo` y en `GET /api/metricas`.
-- Cambiar de proveedor implica agregar una clase que implemente `AdaptadorLLM` (`src/llm/`) y registrarla en `src/llm/index.ts`; el ciclo no cambia.
+| Criterio | Decisión |
+|---|---|
+| **Proveedor y modelo** | Google Gemini, `gemini-3.8-flash`. Se puede cambiar con la variable `GEMINI_MODEL`. |
+| **Por qué** | Buen manejo de herramientas, baja latencia, nivel gratuito y filtros de seguridad configurables. |
+| **Seguridad** | Filtros en el nivel más estricto (`BLOCK_LOW_AND_ABOVE`) para acoso, odio, contenido sexual y contenido peligroso; temperatura 0. |
+| **Costo por caso (estimado)** | Cerca de US$0,03 (unos 25.000 tokens de entrada y 3.000 de salida, al precio de US$0,75 y US$3,75 por millón). |
+| **Costo mensual con 12 casos** | Cerca de US$0,36. Desde enero de 2027, cuando termina el precio promocional, cerca de US$0,72. |
+| **Medición real** | Cada turno de conversación registra tokens, latencia y costo estimado en la tabla `metricas_modelo` (consultable en `/api/metricas`). |
 
-## 5. Diseño del portal web (sección 7.4)
+**Alternativas evaluadas:**
 
-- **Estrategia:** navegador controlado (Playwright) en modo asistido, operado por el agente en un entorno aislado, con selectores por etiqueta accesible y no por posición. Se descarta RPA de pantalla por fragilidad, y una extensión de navegador queda como alternativa cuando el cliente exija el navegador de la analista.
-- **Límites:** CAPTCHA y MFA siempre los resuelve la persona; ante cambios de layout el agente se detiene y entrega `valores-portal.md`. No se reintenta en bucle.
-- **Credenciales:** nunca en el repositorio, el prompt ni los logs. Viven en un gestor de secretos (por ejemplo Azure Key Vault o 1Password) o las teclea la analista directamente en la ventana del navegador; el agente nunca las ve. Los logs enmascaran cualquier campo de tipo contraseña.
-- **Reparto:** el agente navega hasta el formulario y llena los campos con valores de las herramientas. La persona ingresa las credenciales, resuelve CAPTCHA/MFA, revisa la vista previa y hace clic en "Enviar". El agente toma captura como evidencia y la agrega al paquete.
-- **Estado actual:** el caso `pa-logistica-istmo` devuelve `formato no soportado` y genera `out/pa-logistica-istmo/valores-portal.md` con los valores listos para copiar.
+| Opción | Resultado |
+|---|---|
+| Claude Haiku 5.5 (Anthropic) | Más barato (cerca de US$0,07 al mes), pero sin filtros de seguridad configurables. Queda como respaldo. |
+| Groq | Gratuito, pero su límite de 8.000 tokens por minuto es insuficiente para un agente con varias herramientas. |
+| OpenRouter (modelos gratuitos) | Límite de 50 solicitudes al día y llamadas a herramientas poco estables. |
+| Hugging Face | Las cuentas gratuitas no reciben créditos de inferencia. |
+
+Como el costo es mínimo con cualquier opción, el criterio decisivo fue la seguridad. El adaptador propio permite cambiar de proveedor sin modificar el agente.
+
+---
+
+## 5. Diseño para portales web (sección 7.4)
+
+| Tema | Propuesta |
+|---|---|
+| **Estrategia** | Navegador controlado por el agente (Playwright) en modo asistido. Se descarta el RPA de pantalla por ser frágil ante cambios de diseño. |
+| **Límites** | El CAPTCHA y la autenticación de dos factores siempre los resuelve una persona. Si el portal cambia, el agente se detiene y entrega los valores listos para copiar. |
+| **Credenciales** | Nunca en el repositorio, el prompt ni los logs. Se guardan en un gestor de secretos o las digita la analista directamente; el agente nunca las ve. |
+| **Qué hace el agente** | Navega hasta el formulario, llena los campos con datos validados y toma evidencia. |
+| **Qué hace la persona** | Ingresa las credenciales, revisa la vista previa y hace clic en "Enviar". |
+| **Estado actual** | El caso de Panamá responde "formato no soportado" y genera `valores-portal.md` con los valores listos para copiar. |
+
+---
 
 ## 6. Decisiones y trade-offs
 
 | Decisión | Alternativa descartada | Motivo |
 |---|---|---|
-| LangChain v1 + LangGraph para el ciclo | Ciclo propio en un `while` | Ciclo probado, tope por `recursionLimit` y camino de evolución a grafos y multiagente; se mantiene un adaptador propio para no acoplar el resto del código. |
-| Herramientas deterministas, sin LLM dentro | Pedir al modelo que mapee campos | Determinismo, trazabilidad y cero valores inventados; el modelo solo orquesta y resume. |
-| Mapeo por glosario + similitud de palabras (Dice) con umbral 0.8 | Embeddings | Suficiente para los fixtures, explicable y sin costo; los umbrales están en `reglas.json`. |
-| PDF generado con pdfkit | Rellenar un AcroForm | El PRD lo acepta y no se recibió un PDF real del cliente. |
-| Confirmación validada en el servidor | Confiar solo en el prompt | Un prompt puede fallar; la regla RN4 no debe depender del modelo. |
-| SQLite (bun:sqlite) para métricas y tareas | Sin base de datos o un servicio externo | Embebido, sin dependencias, útil para observabilidad; es opcional y su fallo no detiene la conversación. |
-| Front HTML plano servido por el backend | React | Un solo proceso y un solo comando; menos piezas que desplegar. |
+| Agente con LangChain + LangGraph | Ciclo programado a mano | Motor probado, control de iteraciones y camino natural hacia flujos más complejos. |
+| Herramientas deterministas | Que el modelo llene los campos | Exactitud, trazabilidad y cero datos inventados. |
+| Un agente experto | Varios agentes coordinados | Un agente especializado es más confiable y económico para un proceso acotado. |
+| Confirmación validada en el servidor | Confiar solo en el prompt | Las acciones externas no deben depender del comportamiento del modelo. |
+| SQLite local | Base de datos externa | Sin costo ni servicios adicionales; suficiente para métricas y registro de tareas. |
+| Front en HTML servido por el mismo servidor | Aplicación React separada | Un solo despliegue y menos puntos de falla en el plazo del reto. |
+| Gemini | Otros proveedores | Filtros de seguridad configurables con costo mínimo. |
+
+---
 
 ## 7. Supuestos
 
-- "Fecha de ejecución" es la fecha del sistema al correr; se puede fijar con `FECHA_EJECUCION`. Con la fecha real (noviembre de 2026) la Cámara de Comercio (vigencia 2026-09-30) ya está vencida, por eso ningún caso queda `listo_para_firma`. Con `FECHA_EJECUCION=2026-09-02`, `co-industrias-delta` queda listo.
-- Las plantillas Excel no traen columna `obligatorio`; se asumen obligatorios todos sus campos.
-- Para el formato portal se usa `plantilla-campos.json` del caso como lista de campos.
-- "Correo electrónico" se mapea a `contacto_comercial.email`, según el glosario entregado.
-- Un campo `requiere_confirmacion` se escribe en el formulario con el valor propuesto y se marca en el PDF y en `reporte-faltantes.md`; no bloquea la firma.
-- Un envío simulado se permite aunque el paquete esté bloqueado, pero `ENVIO-SIMULADO.md` registra los bloqueos vigentes como advertencia.
-- Soportes emitidos en Colombia para clientes extranjeros se reportan como observación.
+- La "fecha de ejecución" es la fecha del sistema (se puede fijar con `FECHA_EJECUCION`). Con la fecha real de noviembre de 2026, el certificado de Cámara de Comercio está vencido; por eso **ningún caso queda listo para firma**, que es el resultado correcto según las reglas.
+- En las plantillas Excel se asume que todos los campos son obligatorios.
+- Un campo que requiere confirmación se llena con el valor propuesto y se marca para revisión; no bloquea la firma.
+- Los soportes emitidos en Colombia para clientes de otros países se reportan como observación.
+- Los datos del reto son ficticios, por lo que el nivel gratuito de Gemini es aceptable para la prueba.
+
+---
 
 ## 8. Cobertura
 
-| Historia | Estado | Qué falta para producción |
+| Historia de usuario | Estado | Qué falta para producción |
 |---|---|---|
-| HU-1 Leer la solicitud | Hecho | Lectura real de correo (Graph/IMAP) y parseo de adjuntos reales. |
-| HU-2 Mapear campos | Hecho | Glosario administrado por negocio y aprendizaje de sinónimos aprobados. |
-| HU-3 Formulario xlsx (P0) | Hecho | Escribir sobre el archivo real del cliente conservando su formato. |
-| HU-3 Formulario pdf (P1) | Hecho (PDF generado) | Rellenar AcroForms reales. |
-| HU-3 Portal (P2) | Hecho según alcance (valores-portal.md) | Automatización asistida descrita en la sección 5. |
-| HU-4 Paquete para firma | Hecho | Integración con firma electrónica y SharePoint. |
-| HU-5 Manejo de errores | Hecho | Alertas y monitoreo centralizado. |
-| Bonus módulo reutilizable | Hecho (`modulo/`, generado de las mismas fuentes y verificado por prueba) | Publicarlo como paquete versionado. |
+| HU-1 Leer la solicitud | Hecho | Conexión real al correo y lectura de adjuntos. |
+| HU-2 Mapear campos al maestro | Hecho | Glosario administrado por el área de negocio. |
+| HU-3 Formulario Excel | Hecho | Escribir sobre el archivo original del cliente. |
+| HU-3 Formulario PDF | Hecho (PDF generado) | Rellenar formularios PDF originales. |
+| HU-3 Portal web | Hecho según alcance | Automatización asistida descrita en la sección 5. |
+| HU-4 Paquete para firma | Hecho | Integración con firma electrónica y repositorio documental. |
+| HU-5 Manejo de errores | Hecho | Monitoreo y alertas centralizadas. |
+| Bonus: módulo reutilizable | Hecho (`modulo/`) | Publicarlo como paquete versionado. |
+
+**Verificación:** `demo.ts` procesa los 4 casos sin modelo, pasan 18 pruebas automáticas y la aplicación está desplegada en Render.
+
+---
 
 ## 9. Uso de IA
 
-> Sección a completar y revisar por la candidata.
+| Asistente | Para qué se usó |
+|---|---|
+| **Claude (Claude Code en un proyecto de Claude)** | Planeación del reto y apoyo en las decisiones de arquitectura; comparación verificada de proveedores de modelos, costos y plataformas de despliegue; generación del código de herramientas, agente, servidor, front y pruebas; y borrador de la documentación. |
 
-- **Claude (Claude Code):** apoyo en el diseño de la arquitectura, generación del código base de herramientas, ciclo, front, pruebas y borrador de esta documentación. Todo el código fue revisado y se puede explicar línea por línea.
-- **Descartado de lo propuesto:** (completar) por ejemplo, un ciclo propio sin framework se reemplazó por LangGraph por decisión de arquitectura; MCP y multiagente se dejaron como evolución futura para no sobredimensionar el reto.
+**Cómo se trabajó:** se separó un hilo de planeación y decisiones de un hilo de construcción. Ninguna decisión se ejecutó sin aprobación, y el código se verificó con `demo.ts`, pruebas automáticas y el despliegue.
+
+**Qué se descartó de lo propuesto y por qué:**
+
+- **Ciclo del agente programado a mano:** se reemplazó por LangGraph, por decisión de arquitectura.
+- **MCP, React y arquitectura multiagente:** se dejaron como evolución futura para cumplir el plazo sin sobredimensionar el reto.
+- **Hugging Face, Groq y OpenRouter como proveedores:** se descartaron por costo o por límites de uso insuficientes.
+- **Compartir claves por el chat:** se descartó; la clave del modelo se configura solo como variable de entorno.
+
+---
 
 ## 10. Riesgos en producción y mitigación
 
 | Riesgo | Mitigación |
 |---|---|
-| El modelo inventa un valor plausible | Valores solo desde herramientas; el formulario se genera desde el maestro, no desde la salida del modelo. |
-| Fuga de datos bancarios | RN2 en código (borrador sin datos bancarios, probado) y en el prompt; logs sin valores. |
-| Envío sin autorización | Confirmación validada en servidor además del prompt. |
-| Inyección de instrucciones en correos de clientes | El prompt ordena ignorar instrucciones en datos; las herramientas no ejecutan comandos ni acceden fuera de `fixtures/` y `out/`. |
-| Gasto descontrolado de la clave | Topes de iteraciones, tokens por sesión, mensajes por minuto y clave de acceso opcional. |
-| Maestro desactualizado o soportes vencidos | Dueño del dato definido; alertas de vencimiento previas usando `vigencia_hasta`. |
-| Disco efímero en Render free | Para producción: almacenamiento persistente (disco de Render, Blob Storage) y base de datos administrada. |
-| Cambio o retiro del modelo | Modelo configurable por variable y adaptador desacoplado. |
+| El modelo inventa un dato | Los valores salen solo de las herramientas; el formulario se genera desde el maestro. |
+| Exposición de datos bancarios | Regla en el código y en el prompt: nunca se incluyen en el borrador de correo (verificado con una prueba automática); el registro de actividad (`log.jsonl`) guarda solo resúmenes, no valores. |
+| Envío sin autorización | Confirmación validada en el servidor, además del prompt. |
+| Instrucciones maliciosas dentro de un correo | El agente trata el contenido como datos; las herramientas no ejecutan comandos. |
+| Gasto descontrolado | Topes de iteraciones, tokens, mensajes por minuto y tiempo de espera. |
+| Datos maestros desactualizados | Definir un dueño del dato y alertas previas al vencimiento de soportes. |
+| Pérdida de archivos en el plan gratuito de Render | En producción, almacenamiento persistente y base de datos administrada. |
+| Cambio o retiro del modelo | Modelo configurable y adaptador desacoplado. |
 
-## Evolución futura
+---
 
-- **LangGraph con nodos explícitos** (leer → mapear → generar → paquete → interrupción humana) usando `interrupt` y checkpointer persistente.
-- **MCP:** exponer `src/tools/proveedor.ts` como servidor MCP para usarlo desde otras plataformas de agentes.
-- **Multiagente:** un agente de intake de correo, uno de documentos y uno de portales, coordinados por un supervisor, cuando el volumen y la variedad lo justifiquen.
+## Evolución propuesta
+
+1. **Flujo explícito en LangGraph** con pausa para aprobación humana y memoria persistente.
+2. **Protocolo MCP** para que otras plataformas de agentes usen las mismas herramientas.
+3. **Arquitectura multiagente** (correo, documentos y portales) cuando el volumen lo justifique, con modelos de distinto costo según la complejidad de cada tarea.
