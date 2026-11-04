@@ -11,5 +11,5 @@ export function crearAdaptador(): AdaptadorLLM {
     console.warn("GEMINI_API_KEY no está definida: se usa el proveedor simulado.")
     return new AdaptadorSimulado()
   }
-  return new AdaptadorGemini(clave, process.env.GEMINI_MODEL ?? "gemini-3.8-flash")
+  return new AdaptadorGemini(clave, process.env.GEMINI_MODEL || "gemini-3.8-flash", process.env.GEMINI_MODEL_RESPALDO ?? "gemini-3.1-flash-lite")
 }

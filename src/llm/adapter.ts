@@ -19,6 +19,9 @@ export interface AdaptadorLLM {
   enviar(mensajes: BaseMessage[], herramientas: StructuredToolInterface[]): Promise<RespuestaModelo>
   /** Modelo de chat compatible con LangChain, que usa el ciclo de LangGraph. */
   modeloChat(): BaseChatModel
+  /** Modelo de respaldo ante límite de uso del modelo principal (opcional). */
+  modeloRespaldo?(): BaseChatModel | undefined
+  readonly modeloDeRespaldo?: string
 }
 
 export function textoDe(m: BaseMessage): string {

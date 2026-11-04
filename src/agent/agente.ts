@@ -77,7 +77,7 @@ export class Agente {
     // CA3 / RN4: la confirmación solo vale si el turno anterior la pidió y este mensaje la da explícitamente.
     const confirmacionHumana = sesion.pendienteConfirmacion && esConfirmacion(mensaje)
     const ctx = { directory: this.directorio, sessionId: sesion.id, confirmacionHumana }
-    const agente = createAgent({ model: this.adaptador.modeloChat(), tools: aLangChain(ctx), systemPrompt: this.sistema, middleware: [middlewareReintentos(this.config.reintentos)] })
+    const agente = createAgent({ model: this.adaptador.modeloChat(), tools: aLangChain(ctx), systemPrompt: this.sistema, middleware: [middlewareReintentos(this.config.reintentos, this.adaptador.modeloRespaldo?.())] })
     const entrada = [...sesion.mensajes, new HumanMessage(mensaje)]
     const inicio = Date.now()
     let estado: BaseMessage[] = entrada
@@ -111,7 +111,7 @@ export class Agente {
     if (tope) reply = `Alcancé el tope de ${this.config.maxIteraciones} iteraciones en este turno. Lo realizado: ${toolCalls.map((t) => `${t.nombre} (${t.ok ? "ok" : "error"})`).join(", ") || "ninguna herramienta"}. Pida que continúe para completar lo que falta.`
     if (!reply) reply = "No obtuve una respuesta del modelo. Intente de nuevo."
     const envioHecho = toolCalls.some((t) => t.nombre === "proveedor_simular_envio" && t.ok)
-    const paquete = toolCalls.some((t) => t.nombre === "proveedor_armar_paquete" && t.ok)
+    const paquete = toolCalls.some((t) => (t.nombre === "proveedor_armar_paquete" || t.nombre === "proveedor_procesar_caso") && t.ok)
     const envioRechazado = toolCalls.some((t) => t.nombre === "proveedor_simular_envio" && !t.ok)
     const needsConfirmation = !envioHecho && (paquete || envioRechazado || (sesion.pendienteConfirmacion && /\?\s*$/.test(reply)))
     sesion.mensajes = tope ? entrada.concat(new AIMessage(reply)) : estado
@@ -126,6 +126,10 @@ export class Agente {
       const datos = (JSON.parse(t.resultado) as { data?: { listo_para_firma?: boolean; ruta?: string } }).data
       if (t.nombre === "proveedor_leer_solicitud") this.registro.tarea(sesion, caso, "en_proceso")
       if (t.nombre === "proveedor_armar_paquete") this.registro.tarea(sesion, caso, datos?.listo_para_firma ? "listo_para_firma" : "bloqueado")
+      if (t.nombre === "proveedor_procesar_caso") {
+        const listo = (JSON.parse(t.resultado) as { data?: { paquete?: { listo_para_firma?: boolean } } }).data?.paquete?.listo_para_firma
+        this.registro.tarea(sesion, caso, listo ? "listo_para_firma" : "bloqueado")
+      }
       if (t.nombre === "proveedor_simular_envio") {
         this.registro.tarea(sesion, caso, "envio_simulado")
         this.registro.transaccion(sesion, caso, datos?.ruta ?? "", Boolean(datos?.listo_para_firma))
@@ -142,7 +146,9 @@ export class Agente {
     const motivo = timeout
       ? `El proveedor de lenguaje no respondió en ${Math.round(this.config.timeoutMs / 1000)} segundos.`
       : cuota
-        ? "El proveedor de lenguaje rechazó la solicitud por límite de uso. Espere un momento."
+        ? /per.?day|daily|PerDay/i.test(detalle)
+          ? "Se agotó la cuota diaria del proveedor de lenguaje para esta clave. Se restablece al día siguiente; también puede habilitar facturación en Google AI Studio o configurar otro modelo."
+          : "El proveedor de lenguaje rechazó la solicitud por límite de uso por minuto, incluso después de reintentar. Espere un minuto e intente de nuevo."
         : clave
           ? "El proveedor de lenguaje rechazó la credencial configurada en el servidor."
           : "Ocurrió un error al comunicarse con el proveedor de lenguaje."

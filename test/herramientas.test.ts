@@ -143,3 +143,14 @@ describe("Reintentos ante límite de uso", () => {
     expect(esperaSugeridaMs(new Error("Please retry in 12.5s."))).toBe(12500)
   })
 })
+
+describe("procesar_caso (un solo paso)", () => {
+  test("ejecuta el flujo completo sin exponer datos bancarios", async () => {
+    const r = await run(herramientas.procesar_caso, { caso: "ec-corp-andina" })
+    expect(r.ok).toBe(true)
+    expect(r.data.campos_faltantes).toEqual(["Número de contribuyente especial"])
+    expect(r.data.paquete.listo_para_firma).toBe(false)
+    expect(r.data.formulario.ruta).toBe("out/ec-corp-andina/formulario.pdf")
+    for (const dato of ["03100012345", "COLOCOBM"]) expect(JSON.stringify(r)).not.toContain(dato)
+  })
+})

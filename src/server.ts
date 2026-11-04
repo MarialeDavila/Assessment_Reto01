@@ -42,7 +42,7 @@ function excedeLimite(ip: string): boolean {
   return lista.length > LIMITE_POR_MINUTO
 }
 
-app.get("/api/health", (c) => c.json({ ok: true, provider: adaptador.proveedor, model: adaptador.modelo, accessKeyRequired: Boolean(CLAVE_ACCESO) }))
+app.get("/api/health", (c) => c.json({ ok: true, provider: adaptador.proveedor, model: adaptador.modelo, fallbackModel: adaptador.modeloDeRespaldo ?? null, accessKeyRequired: Boolean(CLAVE_ACCESO) }))
 
 app.post("/api/chat", async (c) => {
   const cuerpo = (await c.req.json().catch(() => null)) as { sessionId?: unknown; message?: unknown } | null

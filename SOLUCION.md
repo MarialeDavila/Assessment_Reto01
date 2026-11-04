@@ -45,9 +45,10 @@ Servidor (Bun + Hono, desplegado en Render con Docker)
 ## 3. Ciclo del agente
 
 - **Motor:** LangChain v1 sobre LangGraph. El agente decide qué herramienta usar, la ejecuta, revisa el resultado y repite hasta tener una respuesta.
+- **Eficiencia:** una herramienta de un solo paso (`proveedor_procesar_caso`) ejecuta lectura, mapeo, formulario y paquete. Así un caso completo usa unas 2 llamadas al modelo en lugar de 5, lo que reduce costo, tiempo y riesgo de superar los límites de uso. Las herramientas individuales del contrato siguen disponibles.
 - **Tope de iteraciones:** 25 por turno, configurable. Si se alcanza, el agente responde con lo realizado y lo pendiente, sin perder la sesión.
 - **Control de costo:** tope de tokens por sesión, límite de mensajes por minuto y tiempo máximo de 90 segundos por turno.
-- **Límite de uso del proveedor:** si Gemini rechaza por exceso de solicitudes (error 429), el agente espera el tiempo que indica el proveedor, o una espera creciente, y reintenta hasta 3 veces antes de informar a la usuaria.
+- **Límite de uso del proveedor:** si Gemini rechaza por exceso de solicitudes (error 429), el agente espera el tiempo que indica el proveedor, o una espera creciente, y reintenta hasta 3 veces. Si persiste, cambia a un modelo de respaldo más liviano (`gemini-3.1-flash-lite`, configurable) antes de informar a la usuaria.
 - **Confirmación humana, en dos capas:**
   1. El agente cierra el turno con una pregunta explícita antes de cualquier envío.
   2. El servidor valida que la usuaria haya confirmado en el mensaje inmediatamente anterior. Aunque el modelo fallara, el envío no procede sin esa confirmación.
@@ -63,8 +64,8 @@ Servidor (Bun + Hono, desplegado en Render con Docker)
 | **Proveedor y modelo** | Google Gemini, `gemini-3.8-flash`. Se puede cambiar con la variable `GEMINI_MODEL`. |
 | **Por qué** | Buen manejo de herramientas, baja latencia, nivel gratuito y filtros de seguridad configurables. |
 | **Seguridad** | Filtros en el nivel más estricto (`BLOCK_LOW_AND_ABOVE`) para acoso, odio, contenido sexual y contenido peligroso; temperatura 0. |
-| **Costo por caso (estimado)** | Cerca de US$0,03 (unos 25.000 tokens de entrada y 3.000 de salida, al precio de US$0,75 y US$3,75 por millón). |
-| **Costo mensual con 12 casos** | Cerca de US$0,36. Desde enero de 2027, cuando termina el precio promocional, cerca de US$0,72. |
+| **Costo por caso (estimado)** | Cerca de US$0,01 (unos 8.000 tokens de entrada y 1.500 de salida en 2 llamadas, al precio de US$0,75 y US$3,75 por millón). |
+| **Costo mensual con 12 casos** | Cerca de US$0,15. Desde enero de 2027, cuando el precio se duplica, cerca de US$0,30. |
 | **Medición real** | Cada turno de conversación registra tokens, latencia y costo estimado en la tabla `metricas_modelo` (consultable en `/api/metricas`). |
 
 **Alternativas evaluadas:**
@@ -130,7 +131,7 @@ Como el costo es mínimo con cualquier opción, el criterio decisivo fue la segu
 | HU-5 Manejo de errores | Hecho | Monitoreo y alertas centralizadas. |
 | Bonus: módulo reutilizable | Hecho (`modulo/`) | Publicarlo como paquete versionado. |
 
-**Verificación:** `demo.ts` procesa los 4 casos sin modelo, pasan 19 pruebas automáticas y la aplicación está desplegada en Render.
+**Verificación:** `demo.ts` procesa los 4 casos sin modelo, pasan 20 pruebas automáticas y la aplicación está desplegada en Render.
 
 ---
 

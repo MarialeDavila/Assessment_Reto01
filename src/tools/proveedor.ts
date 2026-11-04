@@ -190,4 +190,32 @@ export const simular_envio = {
   },
 }
 
-export const herramientas = { leer_solicitud, mapear_campos, generar_formulario, armar_paquete, simular_envio }
+export const procesar_caso = {
+  description: "Ejecuta en un solo paso leer_solicitud, mapear_campos, generar_formulario y armar_paquete para un caso y devuelve un resumen sin datos bancarios.",
+  args: { caso: argCaso },
+  async execute(args: { caso: string }, ctx: Ctx): Promise<string> {
+    return ejecutar(ctx, "proveedor_procesar_caso", args.caso, async () => {
+      const leido = JSON.parse(await leer_solicitud.execute(args, ctx)) as Resultado<{ cliente: string; pais: string; formato: string; campos: { etiqueta: string }[]; advertencias: string[] }>
+      if (!leido.ok) return leido
+      const mapeo = JSON.parse(await mapear_campos.execute({ caso: args.caso, campos: leido.data.campos.map((c) => c.etiqueta) }, ctx)) as Resultado<Mapeo>
+      const form = JSON.parse(await generar_formulario.execute(args, ctx)) as Resultado<Generado>
+      const paq = JSON.parse(await armar_paquete.execute(args, ctx)) as Resultado<{ ruta: string; listo_para_firma: boolean; checklist: ReturnType<typeof construirChecklist> }>
+      const m = mapeo.ok ? mapeo.data : undefined
+      return ok({
+        caso: args.caso,
+        cliente: leido.data.cliente,
+        pais: leido.data.pais,
+        formato: leido.data.formato,
+        campos_llenos: m?.llenos.length ?? 0,
+        campos_faltantes: m?.faltantes.map((f) => f.etiqueta) ?? [],
+        requiere_confirmacion: m?.requiere_confirmacion.map((f) => ({ etiqueta: f.etiqueta, nota: f.nota })) ?? [],
+        formulario: form.ok ? form.data : { error: form.error },
+        paquete: paq.ok ? { ruta: paq.data.ruta, listo_para_firma: paq.data.listo_para_firma, soportes: paq.data.checklist.soportes.map((x) => ({ tipo: x.tipo, estado: x.estado, vigencia_hasta: x.vigencia_hasta ?? null })), bloqueos: paq.data.checklist.bloqueos, observaciones: paq.data.checklist.observaciones } : { error: paq.error },
+        advertencias: leido.data.advertencias,
+        carpeta: `out/${args.caso}/`,
+      })
+    }, (d) => `${d.cliente}: ${d.campos_llenos} llenos, ${d.campos_faltantes.length} faltantes, listo_para_firma=${"listo_para_firma" in d.paquete ? d.paquete.listo_para_firma : "error"}`)
+  },
+}
+
+export const herramientas = { leer_solicitud, mapear_campos, generar_formulario, armar_paquete, simular_envio, procesar_caso }

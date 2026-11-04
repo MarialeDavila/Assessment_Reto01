@@ -1,5 +1,6 @@
 /** Reintenta la llamada al modelo ante límite de uso (429) con espera exponencial, respetando el tiempo que indique el proveedor. */
 import { createMiddleware } from "langchain"
+import type { BaseChatModel } from "@langchain/core/language_models/chat_models"
 
 export type ConfigReintentos = { intentos: number; esperaBaseMs: number; esperaMaximaMs: number }
 
@@ -21,7 +22,8 @@ const dormir = (ms: number, signal?: AbortSignal) =>
     signal?.addEventListener("abort", () => (clearTimeout(t), rej(signal.reason)), { once: true })
   })
 
-export function middlewareReintentos(c: ConfigReintentos) {
+/** Reintenta ante 429 y, si se agotan los intentos, usa un modelo de respaldo (si está configurado). */
+export function middlewareReintentos(c: ConfigReintentos, respaldo?: BaseChatModel) {
   return createMiddleware({
     name: "ReintentoLimiteDeUso",
     wrapModelCall: async (request, handler) => {
@@ -29,7 +31,11 @@ export function middlewareReintentos(c: ConfigReintentos) {
         try {
           return await handler(request)
         } catch (e) {
-          if (!esLimiteDeUso(e) || intento >= c.intentos) throw e
+          if (!esLimiteDeUso(e)) throw e
+          if (intento >= c.intentos) {
+            if (respaldo && request.model !== respaldo) return handler({ ...request, model: respaldo })
+            throw e
+          }
           const espera = Math.min(esperaSugeridaMs(e) ?? c.esperaBaseMs * 2 ** intento, c.esperaMaximaMs)
           await dormir(espera, request.runtime?.signal)
         }

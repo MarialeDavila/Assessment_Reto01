@@ -8,7 +8,7 @@ import type { ChatResult } from "@langchain/core/outputs"
 import type { StructuredToolInterface } from "@langchain/core/tools"
 import { enviarConModelo, textoDe, type AdaptadorLLM } from "./adapter"
 
-const PASOS = ["proveedor_leer_solicitud", "proveedor_mapear_campos", "proveedor_generar_formulario", "proveedor_armar_paquete"]
+const PASOS = ["proveedor_procesar_caso"]
 
 class ChatSimulado extends BaseChatModel {
   _llmType() {
