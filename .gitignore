@@ -2,3 +2,4 @@ out/
 node_modules/
 .env
 *.log
+PRD.md
