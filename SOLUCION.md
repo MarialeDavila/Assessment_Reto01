@@ -1,5 +1,7 @@
 # SOLUCIÓN: Reto 01, agente "Registro como Proveedor"
 
+Link de prueba: https://assessment-reto01.onrender.com
+
 ## 1. Problema en una frase
 
 La analista administrativa transcribe a mano, en cada solicitud de un cliente, los mismos datos y soportes de Periferia para registrarla como proveedor; eso genera retrabajo, errores en datos sensibles y dependencia de una sola persona.

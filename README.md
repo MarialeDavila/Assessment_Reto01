@@ -2,7 +2,7 @@
 
 Agente que lee una solicitud de registro como proveedor, mapea los campos al repositorio maestro, genera el formulario (xlsx o pdf; valores copiables para portal), arma el paquete para firma y simula el envío solo con confirmación explícita.
 
-- Link de prueba: `<URL de Render>` (completar tras el despliegue)
+- Link de prueba: https://assessment-reto01.onrender.com (Render, plan gratuito: la primera visita tras inactividad puede tardar 30 a 60 segundos)
 - Clave de acceso: no requerida, salvo que se defina `ACCESS_KEY`.
 
 ## Requisitos
