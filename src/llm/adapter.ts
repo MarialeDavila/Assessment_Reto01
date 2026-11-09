@@ -20,7 +20,7 @@ export interface AdaptadorLLM {
   /** Modelo de chat compatible con LangChain, que usa el ciclo de LangGraph. */
   modeloChat(): BaseChatModel
   /** Modelo de respaldo ante límite de uso del modelo principal (opcional). */
-  modeloRespaldo?(): BaseChatModel | undefined
+  modelosRespaldo?(): BaseChatModel[]
   readonly modeloDeRespaldo?: string
 }
 

@@ -3,6 +3,7 @@ import { HarmBlockThreshold, HarmCategory } from "@google/generative-ai"
 import type { BaseMessage } from "@langchain/core/messages"
 import type { StructuredToolInterface } from "@langchain/core/tools"
 import { enviarConModelo, type AdaptadorLLM } from "./adapter"
+import { ChatSimulado } from "./simulado"
 
 const CATEGORIAS = [
   HarmCategory.HARM_CATEGORY_HARASSMENT,
@@ -30,16 +31,20 @@ export class AdaptadorGemini implements AdaptadorLLM {
   private readonly chat: ChatGoogleGenerativeAI
   private readonly respaldo?: ChatGoogleGenerativeAI
 
-  constructor(apiKey: string, modelo: string, respaldo?: string) {
+  private readonly simulado?: ChatSimulado
+
+  constructor(apiKey: string, modelo: string, respaldo?: string, respaldoSimulado = true) {
     this.modelo = modelo
     this.modeloDeRespaldo = respaldo && respaldo !== modelo ? respaldo : undefined
     this.precio = { entrada: Number(process.env.PRECIO_ENTRADA_USD_MTOK ?? 0.75), salida: Number(process.env.PRECIO_SALIDA_USD_MTOK ?? 3.75) }
     this.chat = crear(apiKey, modelo)
     this.respaldo = this.modeloDeRespaldo ? crear(apiKey, this.modeloDeRespaldo) : undefined
+    this.simulado = respaldoSimulado ? new ChatSimulado({ etiqueta: "[Modo de respaldo sin IA: el proveedor de lenguaje alcanzó su límite de uso. Los datos provienen de las mismas herramientas.]" }) : undefined
   }
 
-  modeloRespaldo() {
-    return this.respaldo
+  /** Cadena de respaldo ante límite de uso: modelo liviano y, como último recurso, el guion determinista. */
+  modelosRespaldo() {
+    return [this.respaldo, this.simulado].filter((m): m is NonNullable<typeof m> => Boolean(m))
   }
 
   enviar(mensajes: BaseMessage[], herramientas: StructuredToolInterface[]) {

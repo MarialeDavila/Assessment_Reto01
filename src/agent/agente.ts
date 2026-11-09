@@ -77,7 +77,7 @@ export class Agente {
     // CA3 / RN4: la confirmación solo vale si el turno anterior la pidió y este mensaje la da explícitamente.
     const confirmacionHumana = sesion.pendienteConfirmacion && esConfirmacion(mensaje)
     const ctx = { directory: this.directorio, sessionId: sesion.id, confirmacionHumana }
-    const agente = createAgent({ model: this.adaptador.modeloChat(), tools: aLangChain(ctx), systemPrompt: this.sistema, middleware: [middlewareReintentos(this.config.reintentos, this.adaptador.modeloRespaldo?.())] })
+    const agente = createAgent({ model: this.adaptador.modeloChat(), tools: aLangChain(ctx), systemPrompt: this.sistema, middleware: [middlewareReintentos(this.config.reintentos, this.adaptador.modelosRespaldo?.() ?? [])] })
     const entrada = [...sesion.mensajes, new HumanMessage(mensaje)]
     const inicio = Date.now()
     let estado: BaseMessage[] = entrada

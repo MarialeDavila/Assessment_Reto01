@@ -48,7 +48,7 @@ Servidor (Bun + Hono, desplegado en Render con Docker)
 - **Eficiencia:** una herramienta de un solo paso (`proveedor_procesar_caso`) ejecuta lectura, mapeo, formulario y paquete. Así un caso completo usa unas 2 llamadas al modelo en lugar de 5, lo que reduce costo, tiempo y riesgo de superar los límites de uso. Las herramientas individuales del contrato siguen disponibles.
 - **Tope de iteraciones:** 25 por turno, configurable. Si se alcanza, el agente responde con lo realizado y lo pendiente, sin perder la sesión.
 - **Control de costo:** tope de tokens por sesión, límite de mensajes por minuto y tiempo máximo de 90 segundos por turno.
-- **Límite de uso del proveedor:** si Gemini rechaza por exceso de solicitudes (error 429), el agente espera el tiempo que indica el proveedor, o una espera creciente, y reintenta hasta 3 veces. Si persiste, cambia a un modelo de respaldo más liviano (`gemini-3.1-flash-lite`, configurable) antes de informar a la usuaria.
+- **Límite de uso del proveedor:** si Gemini rechaza por exceso de solicitudes (error 429), el agente espera el tiempo que indica el proveedor, o una espera creciente, y reintenta hasta 3 veces. Si persiste, cambia a un modelo de respaldo más liviano (`gemini-3.1-flash-lite`, configurable). Si la cuota diaria está agotada, salta los reintentos. Como último recurso, responde en un modo determinista sin IA, claramente etiquetado, que ejecuta las mismas herramientas y redacta el resumen a partir de sus resultados. Así la demo no depende de la cuota gratuita.
 - **Confirmación humana, en dos capas:**
   1. El agente cierra el turno con una pregunta explícita antes de cualquier envío.
   2. El servidor valida que la usuaria haya confirmado en el mensaje inmediatamente anterior. Aunque el modelo fallara, el envío no procede sin esa confirmación.
@@ -131,7 +131,7 @@ Como el costo es mínimo con cualquier opción, el criterio decisivo fue la segu
 | HU-5 Manejo de errores | Hecho | Monitoreo y alertas centralizadas. |
 | Bonus: módulo reutilizable | Hecho (`modulo/`) | Publicarlo como paquete versionado. |
 
-**Verificación:** `demo.ts` procesa los 4 casos sin modelo, pasan 20 pruebas automáticas y la aplicación está desplegada en Render.
+**Verificación:** `demo.ts` procesa los 4 casos sin modelo, pasan 21 pruebas automáticas y la aplicación está desplegada en Render.
 
 ---
 

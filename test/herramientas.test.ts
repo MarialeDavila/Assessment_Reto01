@@ -154,3 +154,25 @@ describe("procesar_caso (un solo paso)", () => {
     for (const dato of ["03100012345", "COLOCOBM"]) expect(JSON.stringify(r)).not.toContain(dato)
   })
 })
+
+describe("Cadena de respaldo ante límite de uso", () => {
+  test("cuota diaria agotada: pasa directo al modo determinista y responde con datos de herramientas", async () => {
+    const { createAgent } = await import("langchain")
+    const { BaseChatModel } = await import("@langchain/core/language_models/chat_models")
+    const { HumanMessage } = await import("@langchain/core/messages")
+    const { middlewareReintentos } = await import("../src/agent/reintentos")
+    const { ChatSimulado } = await import("../src/llm/simulado")
+    const { aLangChain } = await import("../src/agent/herramientas-langchain")
+    class Agotado extends BaseChatModel {
+      _llmType() { return "agotado" }
+      override bindTools() { return this }
+      async _generate(): Promise<never> { throw new Error("[429 Too Many Requests] Quota exceeded: GenerateRequestsPerDayPerProjectPerModel") }
+    }
+    const agente = createAgent({ model: new Agotado({}), tools: aLangChain(ctx), middleware: [middlewareReintentos({ intentos: 3, esperaBaseMs: 10, esperaMaximaMs: 20 }, [new ChatSimulado({ etiqueta: "[Respaldo]" })])] })
+    const r = await agente.invoke({ messages: [new HumanMessage("Procesa el caso ec-corp-andina")] })
+    const texto = String(r.messages.at(-1)?.content)
+    expect(texto).toContain("[Respaldo]")
+    expect(texto).toContain("Número de contribuyente especial")
+    expect(texto).not.toContain("03100012345")
+  })
+})

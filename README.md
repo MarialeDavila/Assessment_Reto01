@@ -24,7 +24,7 @@ Abrir http://localhost:3000. Sin `GEMINI_API_KEY` el servidor arranca con el pro
 
 ```bash
 bun install && bun run demo.ts   # ejecuta las herramientas sobre los 4 casos; limpia out/ al inicio
-bun test                         # 20 pruebas de reglas de negocio, errores y confirmación
+bun test                         # 21 pruebas de reglas de negocio, errores y confirmación
 bun run typecheck
 ```
 
@@ -37,6 +37,7 @@ bun run typecheck
 | `GEMINI_API_KEY` | Sí (para usar Gemini) | Clave de Google AI Studio. Solo en el backend. |
 | `GEMINI_MODEL` | No | Por defecto `gemini-3.8-flash`. |
 | `GEMINI_MODEL_RESPALDO` | No | Modelo usado si el principal sigue en límite de uso tras reintentar. Por defecto `gemini-3.1-flash-lite`; vacío lo desactiva. |
+| `RESPALDO_SIMULADO` | No | `true` (defecto): si todos los modelos están en límite de uso, el agente responde en modo determinista, sin IA, con los mismos datos de las herramientas y una etiqueta visible. `false` lo desactiva. |
 | `LLM_PROVIDER` | No | `gemini` (defecto) o `simulado`. |
 | `MAX_ITERACIONES` | No | Tope de iteraciones modelo-herramienta por turno (25). |
 | `MAX_TOKENS_SESION` | No | Tope de tokens por sesión (200000). |
