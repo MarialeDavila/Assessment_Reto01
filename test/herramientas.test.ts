@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { herramientas, type Ctx } from "../src/tools/proveedor"
 import { esConfirmacion } from "../src/agent/agente"
+import type { BaseMessage } from "@langchain/core/messages"
 
 // En las pruebas se accede libremente a los datos devueltos; el código de producción no usa any.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -18,6 +19,7 @@ beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), "reto01-"))
   cpSync(join(raiz, "fixtures"), join(dir, "fixtures"), { recursive: true })
   cpSync(join(raiz, "src", "knowledge"), join(dir, "src", "knowledge"), { recursive: true })
+  cpSync(join(raiz, "agent"), join(dir, "agent"), { recursive: true })
   ctx = { directory: dir, sessionId: "test" }
   process.env.FECHA_EJECUCION = "2026-09-02"
 })
@@ -197,5 +199,37 @@ describe("Respaldo ante modelo lento", () => {
     expect(String(ultimo?.content)).toContain("[Respaldo]")
     expect((ultimo?.response_metadata as Record<string, unknown>).modelo_usado).toBe("modo de respaldo sin IA")
     expect(Date.now() - inicio).toBeLessThan(3000)
+  })
+})
+
+describe("Envío con confirmación explícita y paquete bloqueado", () => {
+  test("si el modelo se niega, el servidor registra el envío simulado con advertencias", async () => {
+    const { BaseChatModel } = await import("@langchain/core/language_models/chat_models")
+    const { AIMessage } = await import("@langchain/core/messages")
+    const { Agente } = await import("../src/agent/agente")
+    const { Registro } = await import("../src/db")
+    const { ChatSimulado } = await import("../src/llm/simulado")
+    const guion = new ChatSimulado()
+    class Reticente extends BaseChatModel {
+      _llmType() { return "reticente" }
+      override bindTools() { return this }
+      async _generate(mensajes: BaseMessage[]) {
+        const ultimo = String(mensajes.filter((m: BaseMessage) => m.getType() === "human").at(-1)?.content)
+        if (/confirmo/i.test(ultimo)) return { generations: [{ message: new AIMessage("No puedo enviarlo porque el certificado está vencido."), text: "" }] }
+        return guion._generate(mensajes)
+      }
+    }
+    const modelo = new Reticente({})
+    const adaptador = { proveedor: "prueba", modelo: "reticente", precio: { entrada: 0, salida: 0 }, enviar: () => Promise.reject(new Error("no usado")), modeloChat: () => modelo }
+    const config = { maxIteraciones: 25, maxTokensSesion: 1e6, timeoutMs: 10000, reintentos: { intentos: 0, esperaBaseMs: 10, esperaMaximaMs: 10, timeoutLlamadaMs: 5000, presupuestoMs: 5000 } }
+    const agente = new Agente(adaptador, dir, new Registro(dir), config)
+    const sesion = { id: "envio-test", mensajes: [], historial: [], tokens: 0, pendienteConfirmacion: false }
+    const r1 = await agente.turno(sesion, "Procesa el caso hn-agroexport-sula. No envíes nada todavía.")
+    expect(r1.needsConfirmation).toBe(true)
+    const r2 = await agente.turno(sesion, "Sí, confirmo el envío.")
+    expect(r2.toolCalls.some((t) => t.nombre === "proveedor_simular_envio" && t.ok)).toBe(true)
+    expect(r2.needsConfirmation).toBe(false)
+    const archivo = readFileSync(join(dir, "out/hn-agroexport-sula/ENVIO-SIMULADO.md"), "utf8")
+    expect(archivo).toContain("Advertencias")
   })
 })

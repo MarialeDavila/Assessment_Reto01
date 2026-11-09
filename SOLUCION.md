@@ -52,6 +52,7 @@ Servidor (Bun + Hono, desplegado en Render con Docker)
 - **Confirmación humana, en dos capas:**
   1. El agente cierra el turno con una pregunta explícita antes de cualquier envío.
   2. El servidor valida que la usuaria haya confirmado en el mensaje inmediatamente anterior. Aunque el modelo fallara, el envío no procede sin esa confirmación.
+  3. Con confirmación explícita, el envío simulado se registra aunque el paquete tenga bloqueos (soportes vencidos o ausentes), que quedan como advertencias en `ENVIO-SIMULADO.md`. Si el modelo no ejecuta el envío confirmado, el servidor lo ejecuta con la misma herramienta, porque la decisión es humana.
 - **Trazabilidad:** cada acción del agente se muestra en el chat y queda registrada en `out/log.jsonl`, `out/<caso>/log.jsonl`; el estado de cada caso queda además en la base SQLite.
 - **Errores:** las fallas del modelo o de una herramienta se muestran en lenguaje claro y la conversación continúa.
 
@@ -131,7 +132,7 @@ Como el costo es mínimo con cualquier opción, el criterio decisivo fue la segu
 | HU-5 Manejo de errores | Hecho | Monitoreo y alertas centralizadas. |
 | Bonus: módulo reutilizable | Hecho (`modulo/`) | Publicarlo como paquete versionado. |
 
-**Verificación:** `demo.ts` procesa los 4 casos sin modelo, pasan 22 pruebas automáticas y la aplicación está desplegada en Render.
+**Verificación:** `demo.ts` procesa los 4 casos sin modelo, pasan 23 pruebas automáticas y la aplicación está desplegada en Render.
 
 ---
 

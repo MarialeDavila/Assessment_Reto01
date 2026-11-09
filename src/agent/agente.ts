@@ -10,11 +10,12 @@ import { join } from "node:path"
 import { textoDe, type AdaptadorLLM } from "../llm/adapter"
 import type { Registro } from "../db"
 import { aLangChain } from "./herramientas-langchain"
+import { simular_envio, type Ctx } from "../tools/proveedor"
 import { middlewareReintentos, type ConfigReintentos } from "./reintentos"
 
 export type LlamadaVisible = { id: string; nombre: string; args: Record<string, unknown>; ok: boolean; resumen: string; resultado: string }
 export type Entrada = { rol: "usuario" | "agente" | "error"; texto: string; ts: string; toolCalls?: LlamadaVisible[]; needsConfirmation?: boolean; modelo?: string }
-export type Sesion = { id: string; mensajes: BaseMessage[]; historial: Entrada[]; tokens: number; pendienteConfirmacion: boolean }
+export type Sesion = { id: string; mensajes: BaseMessage[]; historial: Entrada[]; tokens: number; pendienteConfirmacion: boolean; casoPendiente?: string }
 export type Respuesta = { reply: string; toolCalls: LlamadaVisible[]; needsConfirmation: boolean; error?: boolean; modelo?: string; uso?: { entrada: number; salida: number; sesion: number } }
 
 export type Config = { maxIteraciones: number; maxTokensSesion: number; timeoutMs: number; reintentos: ConfigReintentos }
@@ -94,7 +95,8 @@ export class Agente {
       if (nombre === "GraphRecursionError" || /recursion/i.test(texto)) tope = true
       else return this.fallar(sesion, nombre, texto, estado.slice(entrada.length))
     }
-    return this.completar(sesion, entrada, estado, tope, Date.now() - inicio)
+    const r = this.completar(sesion, entrada, estado, tope, Date.now() - inicio)
+    return confirmacionHumana ? this.asegurarEnvio(sesion, ctx, r) : r
   }
 
   private completar(sesion: Sesion, entrada: BaseMessage[], estado: BaseMessage[], tope: boolean, latenciaMs: number): Respuesta {
@@ -116,8 +118,36 @@ export class Agente {
     const needsConfirmation = !envioHecho && (paquete || envioRechazado || (sesion.pendienteConfirmacion && /\?\s*$/.test(reply)))
     sesion.mensajes = tope ? entrada.concat(new AIMessage(reply)) : estado
     sesion.pendienteConfirmacion = needsConfirmation
+    const casoPaquete = [...toolCalls].reverse().find((t) => (t.nombre === "proveedor_armar_paquete" || t.nombre === "proveedor_procesar_caso") && t.ok)?.args.caso
+    if (typeof casoPaquete === "string") sesion.casoPendiente = casoPaquete
+    if (envioHecho) sesion.casoPendiente = undefined
     const modelos = [...new Set(ias.map((m) => m.response_metadata?.modelo_usado).filter((x): x is string => typeof x === "string"))]
     return this.cerrar(sesion, { reply, toolCalls, needsConfirmation, modelo: modelos.join(", ") || this.adaptador.modelo, uso: { ...uso, sesion: sesion.tokens } })
+  }
+
+  /**
+   * RN4 en el servidor: si la usuaria confirmó explícitamente y el modelo no ejecutó el envío simulado,
+   * el servidor lo ejecuta con la misma herramienta. La decisión es humana; los bloqueos quedan como advertencias.
+   */
+  private async asegurarEnvio(sesion: Sesion, ctx: Ctx, r: Respuesta): Promise<Respuesta> {
+    const caso = sesion.casoPendiente
+    if (!caso || r.toolCalls.some((t) => t.nombre === "proveedor_simular_envio" && t.ok)) return r
+    const resultado = await simular_envio.execute({ caso, confirmado: true }, ctx)
+    const visible: LlamadaVisible = { id: "servidor-envio", nombre: "proveedor_simular_envio", args: { caso, confirmado: true }, resultado, ...resumir(resultado) }
+    this.registrarTareas(sesion.id, [visible])
+    const datos = JSON.parse(resultado) as { ok: boolean; data?: { ruta: string; listo_para_firma: boolean }; error?: string }
+    const texto = datos.ok
+      ? `Envío simulado registrado por confirmación explícita en ${datos.data?.ruta}. ${datos.data?.listo_para_firma ? "El paquete estaba listo para firma." : "El paquete tenía bloqueos vigentes; quedaron registrados como advertencias en el archivo."} No se envió ningún correo real.`
+      : `No se pudo registrar el envío simulado: ${datos.error}.`
+    sesion.mensajes = [...sesion.mensajes, new AIMessage(texto)]
+    if (datos.ok) {
+      sesion.pendienteConfirmacion = false
+      sesion.casoPendiente = undefined
+    }
+    const entrada = sesion.historial[sesion.historial.length - 1]
+    const nueva: Respuesta = { ...r, reply: texto, toolCalls: [...r.toolCalls, visible], needsConfirmation: !datos.ok && r.needsConfirmation }
+    if (entrada) Object.assign(entrada, { texto: nueva.reply, toolCalls: nueva.toolCalls, needsConfirmation: nueva.needsConfirmation })
+    return nueva
   }
 
   private registrarTareas(sesion: string, toolCalls: LlamadaVisible[]): void {

@@ -24,7 +24,7 @@ Abrir http://localhost:3000. Sin `GEMINI_API_KEY` el servidor arranca con el pro
 
 ```bash
 bun install && bun run demo.ts   # ejecuta las herramientas sobre los 4 casos; limpia out/ al inicio
-bun test                         # 22 pruebas de reglas de negocio, errores y confirmación
+bun test                         # 23 pruebas de reglas de negocio, errores y confirmación
 bun run typecheck
 ```
 
