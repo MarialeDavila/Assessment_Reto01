@@ -13,9 +13,9 @@ import { aLangChain } from "./herramientas-langchain"
 import { middlewareReintentos, type ConfigReintentos } from "./reintentos"
 
 export type LlamadaVisible = { id: string; nombre: string; args: Record<string, unknown>; ok: boolean; resumen: string; resultado: string }
-export type Entrada = { rol: "usuario" | "agente" | "error"; texto: string; ts: string; toolCalls?: LlamadaVisible[]; needsConfirmation?: boolean }
+export type Entrada = { rol: "usuario" | "agente" | "error"; texto: string; ts: string; toolCalls?: LlamadaVisible[]; needsConfirmation?: boolean; modelo?: string }
 export type Sesion = { id: string; mensajes: BaseMessage[]; historial: Entrada[]; tokens: number; pendienteConfirmacion: boolean }
-export type Respuesta = { reply: string; toolCalls: LlamadaVisible[]; needsConfirmation: boolean; error?: boolean; uso?: { entrada: number; salida: number; sesion: number } }
+export type Respuesta = { reply: string; toolCalls: LlamadaVisible[]; needsConfirmation: boolean; error?: boolean; modelo?: string; uso?: { entrada: number; salida: number; sesion: number } }
 
 export type Config = { maxIteraciones: number; maxTokensSesion: number; timeoutMs: number; reintentos: ConfigReintentos }
 
@@ -77,7 +77,7 @@ export class Agente {
     // CA3 / RN4: la confirmación solo vale si el turno anterior la pidió y este mensaje la da explícitamente.
     const confirmacionHumana = sesion.pendienteConfirmacion && esConfirmacion(mensaje)
     const ctx = { directory: this.directorio, sessionId: sesion.id, confirmacionHumana }
-    const agente = createAgent({ model: this.adaptador.modeloChat(), tools: aLangChain(ctx), systemPrompt: this.sistema, middleware: [middlewareReintentos(this.config.reintentos, this.adaptador.modelosRespaldo?.() ?? [])] })
+    const agente = createAgent({ model: this.adaptador.modeloChat(), tools: aLangChain(ctx), systemPrompt: this.sistema, middleware: [middlewareReintentos(this.config.reintentos, this.adaptador.modelo, this.adaptador.modelosRespaldo?.() ?? [])] })
     const entrada = [...sesion.mensajes, new HumanMessage(mensaje)]
     const inicio = Date.now()
     let estado: BaseMessage[] = entrada
@@ -116,7 +116,8 @@ export class Agente {
     const needsConfirmation = !envioHecho && (paquete || envioRechazado || (sesion.pendienteConfirmacion && /\?\s*$/.test(reply)))
     sesion.mensajes = tope ? entrada.concat(new AIMessage(reply)) : estado
     sesion.pendienteConfirmacion = needsConfirmation
-    return this.cerrar(sesion, { reply, toolCalls, needsConfirmation, uso: { ...uso, sesion: sesion.tokens } })
+    const modelos = [...new Set(ias.map((m) => m.response_metadata?.modelo_usado).filter((x): x is string => typeof x === "string"))]
+    return this.cerrar(sesion, { reply, toolCalls, needsConfirmation, modelo: modelos.join(", ") || this.adaptador.modelo, uso: { ...uso, sesion: sesion.tokens } })
   }
 
   private registrarTareas(sesion: string, toolCalls: LlamadaVisible[]): void {
@@ -158,7 +159,7 @@ export class Agente {
   }
 
   private cerrar(sesion: Sesion, r: Respuesta): Respuesta {
-    sesion.historial.push({ rol: r.error ? "error" : "agente", texto: r.reply, ts: new Date().toISOString(), toolCalls: r.toolCalls, needsConfirmation: r.needsConfirmation })
+    sesion.historial.push({ rol: r.error ? "error" : "agente", texto: r.reply, ts: new Date().toISOString(), toolCalls: r.toolCalls, needsConfirmation: r.needsConfirmation, modelo: r.modelo })
     return r
   }
 }

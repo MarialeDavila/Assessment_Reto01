@@ -2,7 +2,8 @@
 import { createMiddleware } from "langchain"
 import type { BaseChatModel } from "@langchain/core/language_models/chat_models"
 
-export type ConfigReintentos = { intentos: number; esperaBaseMs: number; esperaMaximaMs: number }
+export type ConfigReintentos = { intentos: number; esperaBaseMs: number; esperaMaximaMs: number; timeoutLlamadaMs: number; presupuestoMs: number }
+export type ModeloNombrado = { nombre: string; modelo: BaseChatModel }
 
 export function esLimiteDeUso(e: unknown): boolean {
   const texto = e instanceof Error ? `${e.message} ${(e as { status?: number }).status ?? ""}` : String(e)
@@ -26,42 +27,68 @@ export function esCuotaDiaria(e: unknown): boolean {
   return /per.?day|daily|PerDay/i.test(e instanceof Error ? e.message : String(e))
 }
 
-/** Modelos agotados recientemente: se saltan sin esperar mientras dure el bloqueo. */
+export class TiempoAgotado extends Error {
+  constructor(ms: number) {
+    super(`timeout: el modelo no respondió en ${Math.round(ms / 1000)} s`)
+    this.name = "TiempoAgotado"
+  }
+}
+
+function conTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((res, rej) => {
+    const t = setTimeout(() => rej(new TiempoAgotado(ms)), ms)
+    p.then((v) => (clearTimeout(t), res(v)), (e) => (clearTimeout(t), rej(e)))
+  })
+}
+
+/** Modelos agotados o lentos recientemente: se saltan sin esperar mientras dure el bloqueo. */
 const bloqueados = new WeakMap<object, number>()
 const disponible = (m: object) => (bloqueados.get(m) ?? 0) <= Date.now()
 
 /**
- * Ante límite de uso (429): reintenta con espera exponencial (o la sugerida por el proveedor) y, si persiste,
- * pasa al siguiente modelo de la cadena de respaldos. Una cuota diaria agotada se salta de inmediato.
+ * Cadena de respaldo por llamada al modelo:
+ * - cada llamada tiene su propio timeout (timeoutLlamadaMs);
+ * - ante timeout o cuota diaria agotada pasa de inmediato al siguiente modelo;
+ * - ante límite por minuto (429) reintenta con espera, solo si cabe en el presupuesto del turno;
+ * - el último modelo de la cadena (determinista) siempre se intenta.
+ * La respuesta lleva en response_metadata.modelo_usado qué modelo o modo respondió.
  */
-export function middlewareReintentos(c: ConfigReintentos, respaldos: BaseChatModel[] = []) {
+export function middlewareReintentos(c: ConfigReintentos, principal: string, respaldos: ModeloNombrado[] = []) {
   return createMiddleware({
-    name: "ReintentoLimiteDeUso",
+    name: "CadenaDeRespaldo",
     wrapModelCall: async (request, handler) => {
-      const cadena = [request.model, ...respaldos].filter((m, i, a) => a.indexOf(m) === i)
-      const candidatos = cadena.filter(disponible)
-      let ultimo: unknown
-      for (const modelo of candidatos.length ? candidatos : cadena) {
+      const inicio = Date.now()
+      const restante = () => c.presupuestoMs - (Date.now() - inicio)
+      const cadena: ModeloNombrado[] = [{ nombre: principal, modelo: request.model as BaseChatModel }, ...respaldos]
+      const ultimo = cadena[cadena.length - 1] as ModeloNombrado
+      let error: unknown
+      for (const m of cadena) {
+        const esUltimo = m === ultimo
+        if (!esUltimo && (!disponible(m.modelo) || restante() < 2_000)) continue
         for (let intento = 0; ; intento++) {
           try {
-            return await handler({ ...request, model: modelo })
+            const limite = esUltimo ? Math.max(restante(), c.timeoutLlamadaMs) : Math.min(c.timeoutLlamadaMs, restante())
+            const r = await conTimeout(Promise.resolve(handler({ ...request, model: m.modelo })), limite)
+            if (r && typeof r === "object" && "response_metadata" in r) (r as { response_metadata: Record<string, unknown> }).response_metadata.modelo_usado = m.nombre
+            return r
           } catch (e) {
-            if (!esLimiteDeUso(e)) throw e
-            ultimo = e
-            if (esCuotaDiaria(e)) {
-              bloqueados.set(modelo, Date.now() + 60 * 60_000)
-              break
-            }
-            if (intento >= c.intentos) {
-              bloqueados.set(modelo, Date.now() + 60_000)
+            error = e
+            const lento = e instanceof TiempoAgotado
+            if (!lento && !esLimiteDeUso(e)) throw e
+            if (lento || esCuotaDiaria(e)) {
+              bloqueados.set(m.modelo, Date.now() + (lento ? 2 : 60) * 60_000)
               break
             }
             const espera = Math.min(esperaSugeridaMs(e) ?? c.esperaBaseMs * 2 ** intento, c.esperaMaximaMs)
+            if (intento >= c.intentos || espera + c.timeoutLlamadaMs > restante()) {
+              bloqueados.set(m.modelo, Date.now() + 60_000)
+              break
+            }
             await dormir(espera, request.runtime?.signal)
           }
         }
       }
-      throw ultimo
+      throw error
     },
   })
 }

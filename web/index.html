@@ -85,6 +85,7 @@
     if (r.needsConfirmation) m.append(el("span", "etiqueta", "El agente solicita su confirmación"))
     for (const t of r.toolCalls || []) m.append(tarjetaHerramienta(t))
     m.append(el("div", "", r.reply))
+    if (r.modelo) m.append(el("div", "pensando", "Respondió: " + r.modelo))
     if (r.needsConfirmation) {
       const acc = el("div", "acciones")
       const si = el("button", "primario", "Confirmar envío"); si.type = "button"; si.onclick = () => enviar("Sí, confirmo el envío.")
@@ -126,7 +127,7 @@
     $("#estado").textContent = "Proveedor: " + h.provider + " | Modelo: " + h.model
     if (h.accessKeyRequired && !claveAcceso) { claveAcceso = prompt("Clave de acceso:") || ""; try { sessionStorage.setItem("claveAcceso", claveAcceso) } catch {} }
     const s = await api("/api/sessions/" + sessionId)
-    if (s && s.historial) for (const e of s.historial) e.rol === "usuario" ? chat.append(el("div", "msg usuario", e.texto)) : mostrarAgente({ reply: e.texto, toolCalls: e.toolCalls, needsConfirmation: e.needsConfirmation, error: e.rol === "error" })
+    if (s && s.historial) for (const e of s.historial) e.rol === "usuario" ? chat.append(el("div", "msg usuario", e.texto)) : mostrarAgente({ reply: e.texto, toolCalls: e.toolCalls, needsConfirmation: e.needsConfirmation, error: e.rol === "error", modelo: e.modelo })
   })()
 </script>
 </body>

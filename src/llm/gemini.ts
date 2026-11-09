@@ -1,6 +1,7 @@
 import { ChatGoogleGenerativeAI } from "@langchain/google-genai"
 import { HarmBlockThreshold, HarmCategory } from "@google/generative-ai"
 import type { BaseMessage } from "@langchain/core/messages"
+import type { BaseChatModel } from "@langchain/core/language_models/chat_models"
 import type { StructuredToolInterface } from "@langchain/core/tools"
 import { enviarConModelo, type AdaptadorLLM } from "./adapter"
 import { ChatSimulado } from "./simulado"
@@ -44,7 +45,10 @@ export class AdaptadorGemini implements AdaptadorLLM {
 
   /** Cadena de respaldo ante límite de uso: modelo liviano y, como último recurso, el guion determinista. */
   modelosRespaldo() {
-    return [this.respaldo, this.simulado].filter((m): m is NonNullable<typeof m> => Boolean(m))
+    const cadena: { nombre: string; modelo: BaseChatModel }[] = []
+    if (this.respaldo && this.modeloDeRespaldo) cadena.push({ nombre: this.modeloDeRespaldo, modelo: this.respaldo })
+    if (this.simulado) cadena.push({ nombre: "modo de respaldo sin IA", modelo: this.simulado })
+    return cadena
   }
 
   enviar(mensajes: BaseMessage[], herramientas: StructuredToolInterface[]) {

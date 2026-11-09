@@ -168,11 +168,34 @@ describe("Cadena de respaldo ante límite de uso", () => {
       override bindTools() { return this }
       async _generate(): Promise<never> { throw new Error("[429 Too Many Requests] Quota exceeded: GenerateRequestsPerDayPerProjectPerModel") }
     }
-    const agente = createAgent({ model: new Agotado({}), tools: aLangChain(ctx), middleware: [middlewareReintentos({ intentos: 3, esperaBaseMs: 10, esperaMaximaMs: 20 }, [new ChatSimulado({ etiqueta: "[Respaldo]" })])] })
+    const agente = createAgent({ model: new Agotado({}), tools: aLangChain(ctx), middleware: [middlewareReintentos({ intentos: 3, esperaBaseMs: 10, esperaMaximaMs: 20, timeoutLlamadaMs: 1000, presupuestoMs: 3000 }, "agotado", [{ nombre: "respaldo", modelo: new ChatSimulado({ etiqueta: "[Respaldo]" }) }])] })
     const r = await agente.invoke({ messages: [new HumanMessage("Procesa el caso ec-corp-andina")] })
     const texto = String(r.messages.at(-1)?.content)
     expect(texto).toContain("[Respaldo]")
     expect(texto).toContain("Número de contribuyente especial")
     expect(texto).not.toContain("03100012345")
+  })
+})
+
+describe("Respaldo ante modelo lento", () => {
+  test("un timeout por llamada pasa al respaldo sin agotar el turno", async () => {
+    const { createAgent } = await import("langchain")
+    const { BaseChatModel } = await import("@langchain/core/language_models/chat_models")
+    const { HumanMessage } = await import("@langchain/core/messages")
+    const { middlewareReintentos } = await import("../src/agent/reintentos")
+    const { ChatSimulado } = await import("../src/llm/simulado")
+    const { aLangChain } = await import("../src/agent/herramientas-langchain")
+    class Lento extends BaseChatModel {
+      _llmType() { return "lento" }
+      override bindTools() { return this }
+      async _generate(): Promise<never> { await new Promise((r) => setTimeout(r, 5000)); throw new Error("no debería llegar") }
+    }
+    const inicio = Date.now()
+    const agente = createAgent({ model: new Lento({}), tools: aLangChain(ctx), middleware: [middlewareReintentos({ intentos: 2, esperaBaseMs: 10, esperaMaximaMs: 20, timeoutLlamadaMs: 300, presupuestoMs: 2000 }, "lento", [{ nombre: "modo de respaldo sin IA", modelo: new ChatSimulado({ etiqueta: "[Respaldo]" }) }])] })
+    const r = await agente.invoke({ messages: [new HumanMessage("Procesa el caso co-industrias-delta")] })
+    const ultimo = r.messages.at(-1)
+    expect(String(ultimo?.content)).toContain("[Respaldo]")
+    expect((ultimo?.response_metadata as Record<string, unknown>).modelo_usado).toBe("modo de respaldo sin IA")
+    expect(Date.now() - inicio).toBeLessThan(3000)
   })
 })

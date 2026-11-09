@@ -24,7 +24,7 @@ Abrir http://localhost:3000. Sin `GEMINI_API_KEY` el servidor arranca con el pro
 
 ```bash
 bun install && bun run demo.ts   # ejecuta las herramientas sobre los 4 casos; limpia out/ al inicio
-bun test                         # 21 pruebas de reglas de negocio, errores y confirmación
+bun test                         # 22 pruebas de reglas de negocio, errores y confirmación
 bun run typecheck
 ```
 
@@ -42,7 +42,9 @@ bun run typecheck
 | `MAX_ITERACIONES` | No | Tope de iteraciones modelo-herramienta por turno (25). |
 | `MAX_TOKENS_SESION` | No | Tope de tokens por sesión (200000). |
 | `LLM_TIMEOUT_MS` | No | Tiempo máximo por turno (90000). |
-| `LLM_REINTENTOS`, `LLM_ESPERA_BASE_MS`, `LLM_ESPERA_MAXIMA_MS` | No | Reintentos ante límite de uso 429 (3; 2000 ms base; máximo 30000 ms). |
+| `LLM_TIMEOUT_LLAMADA_MS` | No | Tiempo máximo por llamada al modelo antes de pasar al respaldo (25000). |
+| `LLM_PRESUPUESTO_LLAMADA_MS` | No | Presupuesto para reintentos y respaldos de una llamada (40000). |
+| `LLM_REINTENTOS`, `LLM_ESPERA_BASE_MS`, `LLM_ESPERA_MAXIMA_MS` | No | Reintentos ante límite por minuto 429 (2; 2000 ms base; máximo 10000 ms). |
 | `MENSAJES_POR_MINUTO` | No | Límite por IP (12). |
 | `ACCESS_KEY` | No | Si se define, la API exige la cabecera `x-access-key`. |
 | `PRECIO_ENTRADA_USD_MTOK`, `PRECIO_SALIDA_USD_MTOK` | No | Precios para estimar costo en métricas. |
